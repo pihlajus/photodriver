@@ -1,20 +1,21 @@
 from os import listdir, rename
 from os.path import isfile, join
-from pydrive.auth import GoogleAuth
-from pydrive.drive import GoogleDrive
-from helper_functions import *
+from pydrive2.auth import GoogleAuth
+from pydrive2.drive import GoogleDrive
+from exif_utils import *
+from google_drive_utils import *
+
+DRIVE_ROOT_FOLDER = '<your_drive_root_folder_id>'
+PHOTO_FOLDER = '<your_photo_folder>'
 
 
 def main():
-    DRIVE_ROOT_FOLDER = '<your_drive_root_folder_id>'
-    PHOTO_FOLDER = '<your_photo_folder>'
-
-
     # Login to Google Drive and create drive object
     g_login = GoogleAuth()
     g_login.LocalWebserverAuth()
     drive = GoogleDrive(g_login)
 
+    # Get existing folders
     yearly_folder_ids = get_drive_yearly_folder_ids(drive, DRIVE_ROOT_FOLDER)
     monthly_folder_ids = get_drive_monthly_folder_ids(drive, yearly_folder_ids)
 
@@ -30,25 +31,20 @@ def main():
         if file_name != '.DS_Store':
             file_full_path = PHOTO_FOLDER + '/' + file_name
             try:
-                timestamp = str(read_timestamp(file_full_path))
+                datetime_date, drive_folder_date = get_timestamps(file_full_path)
 
-                parsed_date = remove_prefix(timestamp, "Date ").replace('-', ':')
-                datetime_date = datetime.strptime(parsed_date, '%Y:%m:%d %H:%M:%S')
-                drive_folder_date = datetime_date.strftime('%Y/%-m')
-
-                upload_folder_id = None
-                for key, value in monthly_folder_ids.items():
-                    if key == drive_folder_date:
-                        upload_folder_id = value
-                        break
-                if upload_folder_id is None:
-                    print(f'Folder {drive_folder_date} not found or not yet created')
-                    upload_folder_id = create_drive_folder(drive_folder_date, yearly_folder_ids, DRIVE_ROOT_FOLDER, drive)
-                    monthly_folder_ids[drive_folder_date] = upload_folder_id
+                upload_folder_id, monthly_folder_ids = get_or_create_folder_id(DRIVE_ROOT_FOLDER, drive,
+                                                                               drive_folder_date, monthly_folder_ids,
+                                                                               yearly_folder_ids)
 
                 drive_file = drive.CreateFile({'parents': [{'id': upload_folder_id}]})
                 drive_file.SetContentFile(file_full_path)
-                drive_file['title'] = datetime_date.strftime('%Y.%m.%d_%H:%M:%S')
+
+                coordinates = get_location(file_full_path)
+                location = get_area_from_location(coordinates) if coordinates is not None else None
+
+                drive_file['title'] = datetime_date.strftime('%Y.%m.%d_%H:%M:%S') + ('_' + location if location else '')
+
                 drive_file.Upload()
                 rename(file_full_path, uploaded_folder + '/' + file_name)
                 uploaded += 1
@@ -62,4 +58,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
